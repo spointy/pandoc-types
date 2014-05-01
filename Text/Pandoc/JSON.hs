@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances, FlexibleContexts, ScopedTypeVariables #-}
 {-
 Copyright (C) 2013 John MacFarlane <jgm@berkeley.edu>
 
@@ -89,24 +89,24 @@ import System.Environment (getArgs)
 class ToJSONFilter a where
   toJSONFilter :: a -> IO ()
 
-instance (Walkable a Pandoc) => ToJSONFilter (a -> a) where
+instance (FromJSON s, ToJSON s, Walkable (a s) (Pandoc' s)) => ToJSONFilter (a s -> a s) where
   toJSONFilter f = BL.getContents >>=
-    BL.putStr . encode . (walk f :: Pandoc -> Pandoc) . either error id .
+    BL.putStr . encode . (walk f :: Pandoc' s -> Pandoc' s) . either error id .
     eitherDecode'
 
-instance (Walkable a Pandoc) => ToJSONFilter (a -> IO a) where
+instance (FromJSON s, ToJSON s, Walkable (a s) (Pandoc' s)) => ToJSONFilter (a s -> IO (a s)) where
   toJSONFilter f = BL.getContents >>=
-     (walkM f :: Pandoc -> IO Pandoc) . either error id . eitherDecode' >>=
+     (walkM f :: Pandoc' s -> IO (Pandoc' s)) . either error id . eitherDecode' >>=
      BL.putStr . encode
 
 instance Data a => ToJSONFilter (a -> [a]) where
   toJSONFilter f = BL.getContents >>=
-    BL.putStr . encode . (bottomUp (concatMap f) :: Pandoc -> Pandoc) .
+    BL.putStr . encode . (bottomUp (concatMap f) :: Pandoc' () -> Pandoc' ()) .
     either error id . eitherDecode'
 
 instance Data a => ToJSONFilter (a -> IO [a]) where
   toJSONFilter f = BL.getContents >>=
-     (bottomUpM (fmap concat . mapM f) :: Pandoc -> IO Pandoc) .
+     (bottomUpM (fmap concat . mapM f) :: Pandoc' () -> IO (Pandoc' ())) .
      either error id . eitherDecode' >>=
      BL.putStr . encode
 

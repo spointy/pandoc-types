@@ -30,17 +30,22 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 Definition of 'Pandoc' data structure for format-neutral representation
 of documents.
 -}
-module Text.Pandoc.Definition ( Pandoc(..)
-                              , Meta(..)
-                              , MetaValue(..)
+module Text.Pandoc.Definition ( Pandoc
+                              , Pandoc'(..)
+                              , Meta'(..)
+                              , Meta
+                              , MetaValue'(..)
+                              , MetaValue
                               , nullMeta
                               , isNullMeta
                               , lookupMeta
                               , docTitle
                               , docAuthors
                               , docDate
-                              , Block(..)
-                              , Inline(..)
+                              , Block
+                              , Block'(..)
+                              , Inline
+                              , Inline'(..)
                               , Alignment(..)
                               , ListAttributes
                               , ListNumberStyle(..)
@@ -52,8 +57,10 @@ module Text.Pandoc.Definition ( Pandoc(..)
                               , QuoteType(..)
                               , Target
                               , MathType(..)
-                              , Citation(..)
+                              , Citation
+                              , Citation'(..)
                               , CitationMode(..)
+                              , SrcSpan(..)
                               ) where
 
 import Data.Generics (Data, Typeable)
@@ -67,49 +74,55 @@ import Data.String
 import Data.Char (toLower)
 import Data.Monoid
 
-data Pandoc = Pandoc Meta [Block]
-              deriving (Eq, Ord, Read, Show, Typeable, Data, Generic)
+data Pandoc' a = Pandoc (Meta' a) [Block' a]
+                 deriving (Eq, Ord, Read, Show, Typeable, Data, Generic)
 
-instance Monoid Pandoc where
+type Pandoc = Pandoc' ()
+
+instance Monoid (Pandoc' a) where
   mempty = Pandoc mempty mempty
   (Pandoc m1 bs1) `mappend` (Pandoc m2 bs2) =
     Pandoc (m1 `mappend` m2) (bs1 `mappend` bs2)
 
 -- | Metadata for the document:  title, authors, date.
-newtype Meta = Meta { unMeta :: M.Map String MetaValue }
-               deriving (Eq, Ord, Show, Read, Typeable, Data, Generic)
+newtype Meta' a = Meta { unMeta :: M.Map String (MetaValue' a) }
+                  deriving (Eq, Ord, Show, Read, Typeable, Data, Generic)
 
-instance Monoid Meta where
+type Meta = Meta' ()
+
+instance Monoid (Meta' a) where
   mempty = Meta (M.empty)
   (Meta m1) `mappend` (Meta m2) = Meta (M.union m1 m2)
   -- note: M.union is left-biased, so if there are fields in both m1
   -- and m2, m1 wins.
 
-data MetaValue = MetaMap (M.Map String MetaValue)
-               | MetaList [MetaValue]
-               | MetaBool Bool
-               | MetaString String
-               | MetaInlines [Inline]
-               | MetaBlocks [Block]
-               deriving (Eq, Ord, Show, Read, Typeable, Data, Generic)
+data MetaValue' a = MetaMap (M.Map String (MetaValue' a))
+                  | MetaList [MetaValue' a]
+                  | MetaBool Bool
+                  | MetaString String
+                  | MetaInlines [Inline' a]
+                  | MetaBlocks [Block' a]
+                  deriving (Eq, Ord, Show, Read, Typeable, Data, Generic)
 
-nullMeta :: Meta
+type MetaValue = MetaValue' ()
+
+nullMeta :: Meta' a
 nullMeta = Meta M.empty
 
-isNullMeta :: Meta -> Bool
+isNullMeta :: Meta' a -> Bool
 isNullMeta (Meta m) = M.null m
 
 -- Helper functions to extract metadata
 
 -- | Retrieve the metadata value for a given @key@.
-lookupMeta :: String -> Meta -> Maybe MetaValue
+lookupMeta :: String -> Meta' a -> Maybe (MetaValue' a)
 lookupMeta key (Meta m) = M.lookup key m
 
 -- | Extract document title from metadata; works just like the old @docTitle@.
-docTitle :: Meta -> [Inline]
+docTitle :: Monoid a => Meta' a -> [Inline' a]
 docTitle meta =
   case lookupMeta "title" meta of
-         Just (MetaString s)           -> [Str s]
+         Just (MetaString s)           -> [Str s mempty]
          Just (MetaInlines ils)        -> ils
          Just (MetaBlocks [Plain ils]) -> ils
          Just (MetaBlocks [Para ils])  -> ils
@@ -117,22 +130,22 @@ docTitle meta =
 
 -- | Extract document authors from metadata; works just like the old
 -- @docAuthors@.
-docAuthors :: Meta -> [[Inline]]
+docAuthors :: Monoid a => Meta' a -> [[Inline' a]]
 docAuthors meta =
   case lookupMeta "author" meta of
-        Just (MetaString s)    -> [[Str s]]
+        Just (MetaString s)    -> [[Str s mempty]]
         Just (MetaInlines ils) -> [ils]
         Just (MetaList   ms)   -> [ils | MetaInlines ils <- ms] ++
                                   [ils | MetaBlocks [Plain ils] <- ms] ++
                                   [ils | MetaBlocks [Para ils]  <- ms] ++
-                                  [[Str x] | MetaString x <- ms]
+                                  [[Str x mempty] | MetaString x <- ms]
         _                      -> []
 
 -- | Extract date from metadata; works just like the old @docDate@.
-docDate :: Meta -> [Inline]
+docDate :: Monoid a => Meta' a -> [Inline' a]
 docDate meta =
   case lookupMeta "date" meta of
-         Just (MetaString s)           -> [Str s]
+         Just (MetaString s)           -> [Str s mempty]
          Just (MetaInlines ils)        -> ils
          Just (MetaBlocks [Plain ils]) -> ils
          Just (MetaBlocks [Para ils])  -> ils
@@ -169,7 +182,8 @@ nullAttr :: Attr
 nullAttr = ("",[],[])
 
 -- | Table cells are list of Blocks
-type TableCell = [Block]
+type TableCell' a = [Block' a]
+type TableCell = TableCell' ()
 
 -- | Formats for raw blocks
 newtype Format = Format String
@@ -185,30 +199,32 @@ instance Ord Format where
   compare (Format x) (Format y) = compare (map toLower x) (map toLower y)
 
 -- | Block element.
-data Block
-    = Plain [Inline]        -- ^ Plain text, not a paragraph
-    | Para [Inline]         -- ^ Paragraph
-    | CodeBlock Attr String -- ^ Code block (literal) with attributes
-    | RawBlock Format String -- ^ Raw block
-    | BlockQuote [Block]    -- ^ Block quote (list of blocks)
-    | OrderedList ListAttributes [[Block]] -- ^ Ordered list (attributes
-                            -- and a list of items, each a list of blocks)
-    | BulletList [[Block]]  -- ^ Bullet list (list of items, each
-                            -- a list of blocks)
-    | DefinitionList [([Inline],[[Block]])]  -- ^ Definition list
-                            -- Each list item is a pair consisting of a
-                            -- term (a list of inlines) and one or more
-                            -- definitions (each a list of blocks)
-    | Header Int Attr [Inline] -- ^ Header - level (integer) and text (inlines)
-    | HorizontalRule        -- ^ Horizontal rule
-    | Table [Inline] [Alignment] [Double] [TableCell] [[TableCell]]  -- ^ Table,
-                            -- with caption, column alignments (required),
-                            -- relative column widths (0 = default),
-                            -- column headers (each a list of blocks), and
-                            -- rows (each a list of lists of blocks)
-    | Div Attr [Block]      -- ^ Generic block container with attributes
-    | Null                  -- ^ Nothing
+data Block' a
+    = Plain [Inline' a]        -- ^ Plain text, not a paragraph
+    | Para [Inline' a]         -- ^ Paragraph
+    | CodeBlock Attr String    -- ^ Code block (literal) with attributes
+    | RawBlock Format String   -- ^ Raw block
+    | BlockQuote [Block' a]    -- ^ Block quote (list of blocks)
+    | OrderedList ListAttributes [[Block' a]] -- ^ Ordered list (attributes
+                               -- and a list of items, each a list of blocks)
+    | BulletList [[Block' a]]  -- ^ Bullet list (list of items, each
+                               -- a list of blocks)
+    | DefinitionList [([Inline' a],[[Block' a]])]  -- ^ Definition list
+                               -- Each list item is a pair consisting of a
+                               -- term (a list of inlines) and one or more
+                               -- definitions (each a list of blocks)
+    | Header Int Attr [Inline' a] -- ^ Header - level (integer) and text (inlines)
+    | HorizontalRule           -- ^ Horizontal rule
+    | Table [Inline' a] [Alignment] [Double] [TableCell' a] [[TableCell' a]]  -- ^ Table,
+                               -- with caption, column alignments (required),
+                               -- relative column widths (0 = default),
+                               -- column headers (each a list of blocks), and
+                               -- rows (each a list of lists of blocks)
+    | Div Attr [Block' a]      -- ^ Generic block container with attributes
+    | Null                     -- ^ Nothing
     deriving (Eq, Ord, Read, Show, Typeable, Data, Generic)
+
+type Block = Block' ()
 
 -- | Type of quotation marks to use in Quoted inline.
 data QuoteType = SingleQuote | DoubleQuote deriving (Show, Eq, Ord, Read, Typeable, Data, Generic)
@@ -220,37 +236,50 @@ type Target = (String, String)
 data MathType = DisplayMath | InlineMath deriving (Show, Eq, Ord, Read, Typeable, Data, Generic)
 
 -- | Inline elements.
-data Inline
-    = Str String            -- ^ Text (string)
-    | Emph [Inline]         -- ^ Emphasized text (list of inlines)
-    | Strong [Inline]       -- ^ Strongly emphasized text (list of inlines)
-    | Strikeout [Inline]    -- ^ Strikeout text (list of inlines)
-    | Superscript [Inline]  -- ^ Superscripted text (list of inlines)
-    | Subscript [Inline]    -- ^ Subscripted text (list of inlines)
-    | SmallCaps [Inline]    -- ^ Small caps text (list of inlines)
-    | Quoted QuoteType [Inline] -- ^ Quoted text (list of inlines)
-    | Cite [Citation]  [Inline] -- ^ Citation (list of inlines)
-    | Code Attr String      -- ^ Inline code (literal)
-    | Space                 -- ^ Inter-word space
-    | LineBreak             -- ^ Hard line break
-    | Math MathType String  -- ^ TeX math (literal)
-    | RawInline Format String -- ^ Raw inline
-    | Link [Inline] Target  -- ^ Hyperlink: text (list of inlines), target
-    | Image [Inline] Target -- ^ Image:  alt text (list of inlines), target
-    | Note [Block]          -- ^ Footnote or endnote
-    | Span Attr [Inline]    -- ^ Generic inline container with attributes
+data Inline' a
+    = Str String a             -- ^ Text (string), annotation (usually source
+                               --   position(s) in input document, if known)
+    | Emph [Inline' a]         -- ^ Emphasized text (list of inlines)
+    | Strong [Inline' a]       -- ^ Strongly emphasized text (list of inlines)
+    | Strikeout [Inline' a]    -- ^ Strikeout text (list of inlines)
+    | Superscript [Inline' a]  -- ^ Superscripted text (list of inlines)
+    | Subscript [Inline' a]    -- ^ Subscripted text (list of inlines)
+    | SmallCaps [Inline' a]    -- ^ Small caps text (list of inlines)
+    | Quoted QuoteType [Inline' a] -- ^ Quoted text (list of inlines)
+    | Cite [Citation' a]  [Inline' a] -- ^ Citation (list of inlines)
+    | Code Attr String         -- ^ Inline code (literal)
+    | Space                    -- ^ Inter-word space
+    | LineBreak                -- ^ Hard line break
+    | Math MathType String     -- ^ TeX math (literal)
+    | RawInline Format String  -- ^ Raw inline
+    | Link [Inline' a] Target  -- ^ Hyperlink: text (list of inlines), target
+    | Image [Inline' a] Target -- ^ Image:  alt text (list of inlines), target
+    | Note [Block' a]          -- ^ Footnote or endnote
+    | Span Attr [Inline' a]    -- ^ Generic inline container with attributes
     deriving (Show, Eq, Ord, Read, Typeable, Data, Generic)
 
-data Citation = Citation { citationId      :: String
-                         , citationPrefix  :: [Inline]
-                         , citationSuffix  :: [Inline]
-                         , citationMode    :: CitationMode
-                         , citationNoteNum :: Int
-                         , citationHash    :: Int
-                         }
-                deriving (Show, Eq, Read, Typeable, Data, Generic)
+type Inline = Inline' ()
 
-instance Ord Citation where
+-- | Position in the source document. Starts are inclusive, ends are not.
+data SrcSpan = SrcSpan { srcSpanLineStart :: Int
+                       , srcSpanColStart :: Int
+                       , srcSpanLineEnd :: Int
+                       , srcSpanColEnd :: Int
+                       }
+               deriving (Show, Eq, Ord, Read, Typeable, Data, Generic)
+
+data Citation' a = Citation { citationId      :: String
+                            , citationPrefix  :: [Inline' a]
+                            , citationSuffix  :: [Inline' a]
+                            , citationMode    :: CitationMode
+                            , citationNoteNum :: Int
+                            , citationHash    :: Int
+                            }
+                   deriving (Show, Eq, Read, Typeable, Data, Generic)
+
+type Citation = Citation' ()
+
+instance Eq a => Ord (Citation' a) where
     compare = comparing citationHash
 
 data CitationMode = AuthorInText | SuppressAuthor | NormalCitation
@@ -274,14 +303,14 @@ parseJSON' :: (Generic a, Aeson.GFromJSON (Rep a))
            => Aeson.Value -> Aeson.Parser a
 parseJSON' = Aeson.genericParseJSON jsonOpts
 
-instance FromJSON MetaValue
+instance FromJSON a => FromJSON (MetaValue' a)
   where parseJSON = parseJSON'
-instance ToJSON MetaValue
+instance ToJSON a => ToJSON (MetaValue' a)
   where toJSON = toJSON'
 
-instance FromJSON Meta
+instance FromJSON a => FromJSON (Meta' a)
   where parseJSON = parseJSON'
-instance ToJSON Meta
+instance ToJSON a => ToJSON (Meta' a)
   where toJSON = toJSON'
 
 instance FromJSON CitationMode
@@ -289,9 +318,14 @@ instance FromJSON CitationMode
 instance ToJSON CitationMode
   where toJSON = toJSON'
 
-instance FromJSON Citation
+instance FromJSON a => FromJSON (Citation' a)
   where parseJSON = parseJSON'
-instance ToJSON Citation
+instance ToJSON a => ToJSON (Citation' a)
+  where toJSON = toJSON'
+
+instance FromJSON SrcSpan
+  where parseJSON = parseJSON'
+instance ToJSON SrcSpan
   where toJSON = toJSON'
 
 instance FromJSON QuoteType
@@ -324,17 +358,17 @@ instance FromJSON Format
 instance ToJSON Format
   where toJSON = toJSON'
 
-instance FromJSON Inline
+instance FromJSON a => FromJSON (Inline' a)
   where parseJSON = parseJSON'
-instance ToJSON Inline
+instance ToJSON a => ToJSON (Inline' a)
   where toJSON = toJSON'
 
-instance FromJSON Block
+instance FromJSON a => FromJSON (Block' a)
   where parseJSON = parseJSON'
-instance ToJSON Block
+instance ToJSON a => ToJSON (Block' a)
   where toJSON = toJSON'
 
-instance FromJSON Pandoc
+instance FromJSON a => FromJSON (Pandoc' a)
   where parseJSON = parseJSON'
-instance ToJSON Pandoc
+instance ToJSON a => ToJSON (Pandoc' a)
   where toJSON = toJSON'

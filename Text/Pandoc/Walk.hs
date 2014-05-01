@@ -1,5 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, ScopedTypeVariables,
-    OverlappingInstances #-}
+    OverlappingInstances, FlexibleContexts #-}
 {-
 Copyright (C) 2013 John MacFarlane <jgm@berkeley.edu>
 
@@ -45,7 +45,7 @@ headers in a document with regular paragraphs in ALL CAPS:
 > modHeader x = x
 >
 > allCaps :: Inline -> Inline
-> allCaps (Str xs) = Str $ map toUpper xs
+> allCaps (Str xs src) = Str (map toUpper xs) src
 > allCaps x = x
 >
 > changeHeaders :: Pandoc -> Pandoc
@@ -99,8 +99,8 @@ instance (Walkable a b, Walkable a c) => Walkable a (b,c) where
                      return (x',y')
   query f (x,y) = mappend (query f x) (query f y)
 
-instance Walkable Inline Inline where
-  walk f (Str xs)         = f $ Str xs
+instance Walkable (Inline' a) (Inline' a) where
+  walk f (Str xs src)     = f $ Str xs src
   walk f (Emph xs)        = f $ Emph (walk f xs)
   walk f (Strong xs)      = f $ Strong (walk f xs)
   walk f (Strikeout xs)   = f $ Strikeout (walk f xs)
@@ -119,7 +119,7 @@ instance Walkable Inline Inline where
   walk f (Note bs)        = f $ Note (walk f bs)
   walk f (Span attr xs)   = f $ Span attr (walk f xs)
 
-  walkM f (Str xs)        = f $ Str xs
+  walkM f (Str xs src)    = f $ Str xs src
   walkM f (Emph xs)       = Emph <$> walkM f xs >>= f
   walkM f (Strong xs)     = Strong <$> walkM f xs >>= f
   walkM f (Strikeout xs)  = Strikeout <$> walkM f xs >>= f
@@ -140,7 +140,7 @@ instance Walkable Inline Inline where
   walkM f (Note bs)       = Note <$> walkM f bs >>= f
   walkM f (Span attr xs)  = Span attr <$> walkM f xs >>= f
 
-  query f (Str xs)        = f (Str xs)
+  query f (Str xs src)    = f (Str xs src)
   query f (Emph xs)       = f (Emph xs) <> query f xs
   query f (Strong xs)     = f (Strong xs) <> query f xs
   query f (Strikeout xs)  = f (Strikeout xs) <> query f xs
@@ -159,7 +159,7 @@ instance Walkable Inline Inline where
   query f (Note bs)       = f (Note bs) <> query f bs
   query f (Span attr xs)  = f (Span attr xs) <> query f xs
 
-instance Walkable Inline Block where
+instance Walkable (Inline' a) (Block' a) where
   walk f (Para xs)                = Para $ walk f xs
   walk f (Plain xs)               = Plain $ walk f xs
   walk f (CodeBlock attr s)       = CodeBlock attr s
@@ -206,7 +206,7 @@ instance Walkable Inline Block where
   query f (Div attr bs)            = query f bs
   query f Null                     = mempty
 
-instance Walkable Block Block where
+instance Walkable (Block' a) (Block' a) where
   walk f (Para xs)                = f $ Para $ walk f xs
   walk f (Plain xs)               = f $ Plain $ walk f xs
   walk f (CodeBlock attr s)       = f $ CodeBlock attr s
@@ -254,8 +254,8 @@ instance Walkable Block Block where
   query f (Div attr bs)            = f (Div attr bs) <> query f bs
   query f Null                     = f Null
 
-instance Walkable Block Inline where
-  walk f (Str xs)        = Str xs
+instance Walkable (Block' a) (Inline' a) where
+  walk f (Str xs src)    = Str xs src
   walk f (Emph xs)       = Emph (walk f xs)
   walk f (Strong xs)     = Strong (walk f xs)
   walk f (Strikeout xs)  = Strikeout (walk f xs)
@@ -274,7 +274,7 @@ instance Walkable Block Inline where
   walk f (Note bs)       = Note (walk f bs)
   walk f (Span attr xs)  = Span attr (walk f xs)
 
-  walkM f (Str xs)        = return $ Str xs
+  walkM f (Str xs src)   = return $ Str xs src
   walkM f (Emph xs)       = Emph <$> walkM f xs
   walkM f (Strong xs)     = Strong <$> walkM f xs
   walkM f (Strikeout xs)  = Strikeout <$> walkM f xs
@@ -295,7 +295,7 @@ instance Walkable Block Inline where
   walkM f (Note bs)       = Note <$> walkM f bs
   walkM f (Span attr xs)  = Span attr <$> walkM f xs
 
-  query f (Str xs)        = mempty
+  query f (Str xs src)    = mempty
   query f (Emph xs)       = query f xs
   query f (Strong xs)     = query f xs
   query f (Strikeout xs)  = query f xs
@@ -314,41 +314,41 @@ instance Walkable Block Inline where
   query f (Note bs)       = query f bs
   query f (Span attr xs)  = query f xs
 
-instance Walkable Block Pandoc where
+instance Walkable (Block' a) (Pandoc' a) where
   walk f (Pandoc m bs)  = Pandoc (walk f m) (walk f bs)
   walkM f (Pandoc m bs) = do m' <- walkM f m
                              bs' <- walkM f bs
                              return $ Pandoc m' bs'
   query f (Pandoc m bs) = query f m <> query f bs
 
-instance Walkable Inline Pandoc where
+instance Walkable (Inline' a) (Pandoc' a) where
   walk f (Pandoc m bs)  = Pandoc (walk f m) (walk f bs)
   walkM f (Pandoc m bs) = do m' <- walkM f m
                              bs' <- walkM f bs
                              return $ Pandoc m' bs'
   query f (Pandoc m bs) = query f m <> query f bs
 
-instance Walkable Pandoc Pandoc where
+instance Walkable (Pandoc' a) (Pandoc' a) where
   walk f = f
   walkM f = f
   query f = f
 
-instance Walkable Meta Meta where
+instance Walkable (Meta' a) (Meta' a) where
   walk f = f
   walkM f = f
   query f = f
 
-instance Walkable Inline Meta where
+instance Walkable (Inline' a) (Meta' a) where
   walk f (Meta metamap)  = Meta $ walk f metamap
   walkM f (Meta metamap) = Meta <$> walkM f metamap
   query f (Meta metamap) = query f metamap
 
-instance Walkable Block Meta where
+instance Walkable (Block' a) (Meta' a) where
   walk f (Meta metamap)  = Meta $ walk f metamap
   walkM f (Meta metamap) = Meta <$> walkM f metamap
   query f (Meta metamap) = query f metamap
 
-instance Walkable Inline MetaValue where
+instance Walkable (Inline' a) (MetaValue' a) where
   walk f (MetaList xs)    = MetaList $ walk f xs
   walk f (MetaBool b)     = MetaBool b
   walk f (MetaString s)   = MetaString s
@@ -370,7 +370,7 @@ instance Walkable Inline MetaValue where
   query f (MetaBlocks bs)  = query f bs
   query f (MetaMap m)      = query f m
 
-instance Walkable Block MetaValue where
+instance Walkable (Block' a) (MetaValue' a) where
   walk f (MetaList xs)    = MetaList $ walk f xs
   walk f (MetaBool b)     = MetaBool b
   walk f (MetaString s)   = MetaString s
