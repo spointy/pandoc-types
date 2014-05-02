@@ -392,7 +392,7 @@ instance Walkable (Block' a) (MetaValue' a) where
   query f (MetaBlocks bs)  = query f bs
   query f (MetaMap m)      = query f m
 
-instance Walkable Inline Citation where
+instance Walkable (Inline' a) (Citation' a) where
   walk f (Citation id' pref suff mode notenum hash) =
     Citation id' (walk f pref) (walk f suff) mode notenum hash
   walkM f (Citation id' pref suff mode notenum hash) =
@@ -402,7 +402,7 @@ instance Walkable Inline Citation where
   query f (Citation id' pref suff mode notenum hash) =
     query f pref <> query f suff
 
-instance Walkable Block Citation where
+instance Walkable (Block' a) (Citation' a) where
   walk f (Citation id' pref suff mode notenum hash) =
     Citation id' (walk f pref) (walk f suff) mode notenum hash
   walkM f (Citation id' pref suff mode notenum hash) =
